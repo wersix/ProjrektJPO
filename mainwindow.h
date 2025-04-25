@@ -5,6 +5,7 @@
 #include "apimanager.h"
 #include <QJsonArray>
 #include <QListWidgetItem>
+#include <QSet>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -42,5 +43,8 @@ private:
 
     QString lastMeasurementJson;
     int lastStationId = -1;
+
+    QSet<QString> drawnCharts;
+    QMap<QString, QMainWindow*> openCharts;
 };
 #endif // MAINWINDOW_H

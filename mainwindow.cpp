@@ -168,6 +168,8 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
         measurementResults.clear();
         sensorsReceived = 0;  // zaczynamy od zera              || Dla wiecej niz 3 czujniki
         totalSensorsExpected = 0;  // jeszcze nie wiemy         || Dla wiecej niz 3 czujniki
+        //isChartDrawn = false;        // lepszy sposób poniżej
+        drawnCharts.clear();
         apiManager->getSensorsForStation(stationId);
     }
 }
@@ -211,7 +213,7 @@ void MainWindow::on_pushButton_2_clicked()
         QMessageBox::warning(this, "Błąd", "Plik nie zawiera listy stacji (może zawierać dane pomiarowe).");
         return;
     }
-
+    //isChartDrawn = false;
     showStationsInList(data);
 }
 void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
@@ -269,28 +271,36 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     QMainWindow *chartWindow = new QMainWindow();
     chartWindow->setCentralWidget(chartView);
     chartWindow->resize(600, 400);
-    chartWindow->setWindowTitle("Wykres");
+    chartWindow->setWindowTitle("Wykres: " + paramCode);
     chartWindow->show();
+
+    // Zapamiętaj okno
+    openCharts[paramCode] = chartWindow;
+
+    // Gdy okno zostanie zamknięte, usuń je z mapy
+    connect(chartWindow, &QMainWindow::destroyed, this, [=]() {
+        openCharts.remove(paramCode);
+    });
 }
 
-bool isChartDrawn = false;          // ponieważ wykres się rysuje 2 razy, dlatego robimy boola, żeby nie potrzebnie się nie nadrysowywał
+//bool isChartDrawn = false;          // ponieważ wykres się rysuje 2 razy, dlatego robimy boola, żeby nie potrzebnie się nie nadrysowywał
 void MainWindow::on_drawButton_clicked()
 {
-    if (isChartDrawn) {
-        return; // Jeśli wykres został już narysowany, nie wykona żadnych działań
-    }
-
     QString selectedParam = ui->sensorComboBox->currentText();
     if (selectedParam.isEmpty() || !sensorDataMap.contains(selectedParam)) {
         QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
         return;
     }
 
+    if (drawnCharts.contains(selectedParam)) {
+        QMessageBox::information(this, "Wykres", "Ten wykres został już wyświetlony.");
+        return;
+    }
+    drawnCharts.insert(selectedParam);  // zapamiętaj, że już był
+
     QJsonArray data = sensorDataMap[selectedParam];
     drawChart(selectedParam, data);
 
-    // Ustawia flagę na true, aby wykres nie pojawiał się ponownie
-    isChartDrawn = true;
 }
 
 
