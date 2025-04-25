@@ -100,6 +100,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_pushButton_clicked()
 {
+
     //QMessageBox :: information(this, "Inf.", "Kliknięto przycisk");
     apiManager->getAirStations();
 }
@@ -218,10 +219,11 @@ void MainWindow::on_pushButton_2_clicked()
 }
 void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
 {
-    qDebug() << "Rysuję wykres tylko raz dla:" << paramCode;            //TEST pokazania ile razy zostaje wywoływane drawChart
-    qDebug() << "Wywołano drawChart dla parametru:" << paramCode;       //TEST do sprawdzenia czy sama funkcja drawChart się wykona
+    qDebug() << "Rysuję wykres tylko raz dla:" << paramCode;
+
     QLineSeries *series = new QLineSeries();
-    series->setName(paramCode);  // kolor i opis
+    series->setName(paramCode);
+    series->setColor(Qt::blue);
 
     QDateTimeAxis *axisX = new QDateTimeAxis;
     axisX->setFormat("dd.MM HH:mm");
@@ -246,40 +248,36 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     chart->addAxis(axisY, Qt::AlignLeft);
     series->attachAxis(axisX);
     series->attachAxis(axisY);
-    series->setName(paramCode);
-    series->setColor(Qt::blue);     // niebieski wykres
-    //chart->createDefaultAxes();
-    //Legenda
+
     chart->legend()->setVisible(true);
     chart->legend()->setAlignment(Qt::AlignBottom);
 
     QChartView *chartView = new QChartView(chart);
     chartView->setRenderHint(QPainter::Antialiasing);
 
+    // Zapis wykresu jako pliku PNG
     QPixmap pixmap(chartView->size());
-    pixmap.fill(Qt::white);  // białe tło
-
+    pixmap.fill(Qt::white);
     QPainter painter(&pixmap);
     chartView->render(&painter);
     painter.end();
-
     QString fileName = QString("wykres_%1.png").arg(paramCode);
     pixmap.save(fileName);
     qDebug() << "Wykres zapisany do pliku:" << fileName;
 
-    // Pokaż wykres w osobnym oknie
-    QMainWindow *chartWindow = new QMainWindow();
+    // Użycie nowej klasy ChartWindow
+    ChartWindow *chartWindow = new ChartWindow(paramCode);
     chartWindow->setCentralWidget(chartView);
     chartWindow->resize(600, 400);
     chartWindow->setWindowTitle("Wykres: " + paramCode);
     chartWindow->show();
 
-    // Zapamiętaj okno
     openCharts[paramCode] = chartWindow;
+    qDebug() <<  "zapisane charty: " << openCharts;
 
-    // Gdy okno zostanie zamknięte, usuń je z mapy
-    connect(chartWindow, &QMainWindow::destroyed, this, [=]() {
-        openCharts.remove(paramCode);
+    chartWindow->setOnCloseCallback([=](const QString &code) {
+        openCharts.remove(code);
+        qDebug() << "Wykres dla" << code << "zamknięty – usunięto z mapy.";
     });
 }
 
@@ -291,15 +289,21 @@ void MainWindow::on_drawButton_clicked()
         QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
         return;
     }
+    qDebug() <<  "otwarte charty przed: " << openCharts;
+    //if (openCharts.contains(selectedParam)) {
+    //    QMessageBox::information(this, "Wykres", "Wykres już jest otwarty.");
+    //    qDebug() <<  "otwarte charty: " << openCharts;
+    //    return;
+    //}
 
-    if (drawnCharts.contains(selectedParam)) {
-        QMessageBox::information(this, "Wykres", "Ten wykres został już wyświetlony.");
-        return;
-    }
     drawnCharts.insert(selectedParam);  // zapamiętaj, że już był
+    qDebug() <<  "narysowane charty: " << drawnCharts;
 
     QJsonArray data = sensorDataMap[selectedParam];
     drawChart(selectedParam, data);
+    qDebug() <<  "koniec funkcji";
+    return;
+    qDebug() <<  "po returnie";
 
 }
 

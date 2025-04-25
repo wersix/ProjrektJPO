@@ -47,4 +47,25 @@ private:
     QSet<QString> drawnCharts;
     QMap<QString, QMainWindow*> openCharts;
 };
+class ChartWindow : public QMainWindow
+{
+    Q_OBJECT
+public:
+    explicit ChartWindow(const QString &paramCode, QWidget *parent = nullptr)
+        : QMainWindow(parent), m_paramCode(paramCode) {}
+
+    void setOnCloseCallback(std::function<void(const QString &)> callback) {
+        m_onClose = callback;
+    }
+
+protected:
+    void closeEvent(QCloseEvent *event) override {
+        if (m_onClose) m_onClose(m_paramCode);
+        QMainWindow::closeEvent(event);
+    }
+
+private:
+    QString m_paramCode;
+    std::function<void(const QString &)> m_onClose;
+};
 #endif // MAINWINDOW_H
