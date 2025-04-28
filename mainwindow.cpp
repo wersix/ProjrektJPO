@@ -14,6 +14,8 @@
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QDateTimeAxis>
+#include <limits>
+#include <QFileDialog>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -352,5 +354,72 @@ void MainWindow::on_exportButton_clicked()
     }
 
     QMessageBox::information(this, "Zapisano", "Dane zapisano do:\n" + jsonFilename + "\ni\n" + csvFilename);
+}
+
+
+void MainWindow::on_analyzeButton_clicked()
+{
+    QString selectedParam = ui->sensorComboBox->currentText();
+    if (selectedParam.isEmpty() || !sensorDataMap.contains(selectedParam)) {
+        QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
+        return;
+    }
+
+    QJsonArray data = sensorDataMap[selectedParam];
+    if (data.isEmpty()) {
+        QMessageBox::warning(this, "Błąd", "Brak pomiarów do analizy.");
+        return;
+    }
+
+    double minValue = std::numeric_limits<double>::max();
+    double maxValue = std::numeric_limits<double>::lowest();
+    double sum = 0.0;
+    int count = 0;
+    int exceedances = 0;  // liczba przekroczeń
+
+    for (const QJsonValue &val : data) {
+        QJsonObject v = val.toObject();
+        if (!v["value"].isNull()) {
+            double value = v["value"].toDouble();
+            if (value < minValue) minValue = value;
+            if (value > maxValue) maxValue = value;
+            sum += value;
+            ++count;
+
+            if (selectedParam == "PM10" && value > 25.0) {
+                ++exceedances;
+            }
+        }
+    }
+
+    if (count == 0) {
+        QMessageBox::information(this, "Analiza danych", "Brak dostępnych danych pomiarowych do analizy.");
+        return;
+    }
+
+    double avg = sum / count;
+    double exceedancePercent = (count > 0) ? (100.0 * exceedances / count) : 0.0;
+
+    QString analysis = QString(
+                           "Analiza danych dla parametru: %1\n\n"
+                           "Liczba pomiarów: %2\n"
+                           "Wartość minimalna: %3 µg/m³\n"
+                           "Wartość maksymalna: %4 µg/m³\n"
+                           "Średnia wartość: %5 µg/m³\n"
+                           ).arg(selectedParam)
+                           .arg(count)
+                           .arg(QString::number(minValue, 'f', 2))
+                           .arg(QString::number(maxValue, 'f', 2))
+                           .arg(QString::number(avg, 'f', 2));
+
+    if (selectedParam == "PM10") {
+        analysis += QString(
+                        "\nPrzekroczenia progu 25 µg/m³: %1 razy\n"
+                        "Procent przekroczeń: %2%"
+                        ).arg(exceedances)
+                        .arg(QString::number(exceedancePercent, 'f', 2));
+    }
+
+    QMessageBox::information(this, "Analiza danych", analysis);
 }
 

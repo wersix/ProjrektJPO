@@ -29,6 +29,8 @@ private slots:
 
     void on_exportButton_clicked();
 
+    void on_analyzeButton_clicked();
+
 private:
     Ui::MainWindow *ui;
 
