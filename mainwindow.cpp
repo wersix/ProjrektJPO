@@ -93,6 +93,7 @@ MainWindow::MainWindow(QWidget *parent)
     */
     connect(ui->drawButton, &QPushButton::clicked,
             this, &MainWindow::on_drawButton_clicked);
+    connect(ui->refreshButton, &QPushButton::clicked, this, &MainWindow::on_refreshButton_clicked);
 }
 
 MainWindow::~MainWindow()
@@ -257,6 +258,7 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     QChartView *chartView = new QChartView(chart);
     chartView->setRenderHint(QPainter::Antialiasing);
 
+    /*Zapis robił się tutaj automatycznie, teraz jest do tego osobny przycisk
     // Zapis wykresu jako pliku PNG
     QPixmap pixmap(chartView->size());
     pixmap.fill(Qt::white);
@@ -266,6 +268,9 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     QString fileName = QString("wykres_%1.png").arg(paramCode);
     pixmap.save(fileName);
     qDebug() << "Wykres zapisany do pliku:" << fileName;
+    */
+
+
 
     // Użycie nowej klasy ChartWindow
     ChartWindow *chartWindow = new ChartWindow(paramCode);
@@ -421,5 +426,71 @@ void MainWindow::on_analyzeButton_clicked()
     }
 
     QMessageBox::information(this, "Analiza danych", analysis);
+}
+
+void MainWindow::on_exportChartButton_clicked()
+{
+    QString selectedParam = ui->sensorComboBox->currentText();
+    if (selectedParam.isEmpty() || !openCharts.contains(selectedParam)) {
+        QMessageBox::warning(this, "Błąd", "Nie znaleziono otwartego wykresu dla wybranego czujnika.");
+        return;
+    }
+
+    ChartWindow *chartWindow = qobject_cast<ChartWindow *>(openCharts[selectedParam]);
+    if (!chartWindow) {
+        QMessageBox::warning(this, "Błąd", "Nieprawidłowe okno wykresu.");
+        return;
+    }
+
+    QChartView *chartView = qobject_cast<QChartView *>(chartWindow->centralWidget());
+    if (!chartView) {
+        QMessageBox::warning(this, "Błąd", "Nie znaleziono widoku wykresu.");
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(this, "Zapisz wykres jako...",
+                                                    QString("wykres_%1.png").arg(selectedParam),
+                                                    "Obraz PNG (*.png)");
+    if (fileName.isEmpty())
+        return;  // Użytkownik anulował
+
+    QPixmap pixmap(chartView->size());
+    pixmap.fill(Qt::white);
+    QPainter painter(&pixmap);
+    chartView->render(&painter);
+    painter.end();
+
+    if (pixmap.save(fileName)) {
+        QMessageBox::information(this, "Sukces", "Wykres zapisano do pliku:\n" + fileName);
+    } else {
+        QMessageBox::warning(this, "Błąd", "Nie udało się zapisać pliku.");
+    }
+}
+
+void MainWindow::on_refreshButton_clicked()
+{
+    if (lastStationId == 0) {
+        QMessageBox::warning(this, "Błąd", "Nie wybrano stacji do odświeżenia.");
+        return;
+    }
+
+    // Zamknij wszystkie otwarte wykresy
+    for (auto chartWindow : openCharts) {
+        if (chartWindow) {
+            chartWindow->close();
+        }
+    }
+    openCharts.clear();
+
+    measurementResults.clear();
+    sensorsReceived = 0;
+    totalSensorsExpected = 0;
+    sensorDataMap.clear();
+    ui->sensorComboBox->clear();
+    drawnCharts.clear();
+
+    QMessageBox::information(this, "Odświeżanie", "Rozpoczęto odświeżanie danych dla wybranej stacji.");
+
+    apiManager->getSensorsForStation(lastStationId);
 }
 

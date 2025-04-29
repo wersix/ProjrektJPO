@@ -31,6 +31,10 @@ private slots:
 
     void on_analyzeButton_clicked();
 
+    void on_exportChartButton_clicked();
+
+    void on_refreshButton_clicked();
+
 private:
     Ui::MainWindow *ui;
 
