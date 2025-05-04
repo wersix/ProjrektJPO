@@ -95,8 +95,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::on_drawButton_clicked);
     connect(ui->refreshButton, &QPushButton::clicked, this, &MainWindow::on_refreshButton_clicked);
 
-    ui->startDateTimeEdit->setDateTime(QDate::currentDate().addDays(-7));  // domyślnie 7 dni wstecz
-    ui->endDateTimeEdit->setDateTime(QDate::currentDate());                // domyślnie dziś
+    ui->startDateTimeEdit->setDateTime(QDateTime(QDate::currentDate().addDays(-7), QTime::currentTime()));       // domyślnie 7 dni wstecz
+    ui->endDateTimeEdit->setDateTime(QDateTime(QDate::currentDate(), QTime::currentTime()));                     // domyślnie dziś
 
 }
 
