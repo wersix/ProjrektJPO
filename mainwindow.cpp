@@ -94,6 +94,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->drawButton, &QPushButton::clicked,
             this, &MainWindow::on_drawButton_clicked);
     connect(ui->refreshButton, &QPushButton::clicked, this, &MainWindow::on_refreshButton_clicked);
+
+    ui->startDateTimeEdit->setDateTime(QDate::currentDate().addDays(-7));  // domyślnie 7 dni wstecz
+    ui->endDateTimeEdit->setDateTime(QDate::currentDate());                // domyślnie dziś
+
 }
 
 MainWindow::~MainWindow()
@@ -224,6 +228,9 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
 {
     qDebug() << "Rysuję wykres tylko raz dla:" << paramCode;
 
+    QDateTime startDate = ui->startDateTimeEdit->dateTime();
+    QDateTime endDate = ui->endDateTimeEdit->dateTime();
+
     QLineSeries *series = new QLineSeries();
     series->setName(paramCode);
     series->setColor(Qt::blue);
@@ -240,8 +247,9 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
         if (!v["value"].isNull()) {
             QDateTime dt = QDateTime::fromString(v["date"].toString(), Qt::ISODate);
             double value = v["value"].toDouble();
-            if (dt.isValid())
+            if (dt.isValid() && dt >= startDate && dt <= endDate) {
                 series->append(dt.toMSecsSinceEpoch(), value);
+            }
         }
     }
 
@@ -302,6 +310,14 @@ void MainWindow::on_drawButton_clicked()
     //    qDebug() <<  "otwarte charty: " << openCharts;
     //    return;
     //}
+
+    QDateTime startDate = ui->startDateTimeEdit->dateTime();
+    QDateTime endDate = ui->endDateTimeEdit->dateTime();
+
+    if (startDate > endDate) {
+        QMessageBox::warning(this, "Błąd daty", "Data początkowa nie może być późniejsza niż końcowa.");
+        return;
+    }
 
     drawnCharts.insert(selectedParam);  // zapamiętaj, że już był
     qDebug() <<  "narysowane charty: " << drawnCharts;
