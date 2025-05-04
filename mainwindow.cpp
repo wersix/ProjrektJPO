@@ -228,9 +228,6 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
 {
     qDebug() << "Rysuję wykres tylko raz dla:" << paramCode;
 
-    QDateTime startDate = ui->startDateTimeEdit->dateTime();
-    QDateTime endDate = ui->endDateTimeEdit->dateTime();
-
     QLineSeries *series = new QLineSeries();
     series->setName(paramCode);
     series->setColor(Qt::blue);
@@ -242,11 +239,17 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     QValueAxis *axisY = new QValueAxis;
     axisY->setTitleText("Stężenie (µg/m³)");
 
+    //Pobieranie dat z interfejsu
+    QDateTime startDate = ui->startDateTimeEdit->dateTime();
+    QDateTime endDate = ui->endDateTimeEdit->dateTime();
+
     for (const QJsonValue &val : values) {
         QJsonObject v = val.toObject();
         if (!v["value"].isNull()) {
             QDateTime dt = QDateTime::fromString(v["date"].toString(), Qt::ISODate);
             double value = v["value"].toDouble();
+
+            // Filtrowanie po dacie
             if (dt.isValid() && dt >= startDate && dt <= endDate) {
                 series->append(dt.toMSecsSinceEpoch(), value);
             }
