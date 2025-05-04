@@ -281,7 +281,11 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     qDebug() << "Wykres zapisany do pliku:" << fileName;
     */
 
-
+    if (openCharts.contains(paramCode)) {
+        openCharts[paramCode]->raise();
+        openCharts[paramCode]->activateWindow();
+        return;
+    }
 
     // Użycie nowej klasy ChartWindow
     ChartWindow *chartWindow = new ChartWindow(paramCode);
@@ -302,6 +306,7 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
 //bool isChartDrawn = false;          // ponieważ wykres się rysuje 2 razy, dlatego robimy boola, żeby nie potrzebnie się nie nadrysowywał
 void MainWindow::on_drawButton_clicked()
 {
+    /*Może to pod /* rozwiąże problem podwójnych komunikatów?
     QString selectedParam = ui->sensorComboBox->currentText();
     if (selectedParam.isEmpty() || !sensorDataMap.contains(selectedParam)) {
         QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
@@ -330,6 +335,28 @@ void MainWindow::on_drawButton_clicked()
     qDebug() <<  "koniec funkcji";
     return;
     qDebug() <<  "po returnie";
+    */
+
+    QString selectedSensor = ui->sensorComboBox->currentText();
+    if (selectedSensor.isEmpty()) {
+        QMessageBox::warning(this, "Brak wyboru", "Wybierz czujnik z listy.");
+        return;
+    }
+
+    if (!sensorDataMap.contains(selectedSensor)) {
+        QMessageBox::warning(this, "Brak danych", "Brak danych pomiarowych dla wybranego czujnika.");
+        return;
+    }
+
+    // Filtr dat
+    QDateTime startDate = ui->startDateTimeEdit->dateTime();
+    QDateTime endDate = ui->endDateTimeEdit->dateTime();
+    if (startDate >= endDate) {
+        QMessageBox::warning(this, "Błędna data", "Data początkowa musi być wcześniejsza niż końcowa.");
+        return;
+    }
+
+    drawChart(selectedSensor, sensorDataMap[selectedSensor]);
 
 }
 
