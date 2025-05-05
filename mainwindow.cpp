@@ -18,10 +18,11 @@
 #include <QFileDialog>
 #include <QPainter>
 #include <QDebug>
+#include <QtConcurrent>
 
 /**
  * @brief Konstruktor okna głównego.
- * @details Inicjalizuje interfejs, ustawia domyślne daty i konfiguruje połączenia sygnałów.
+ * @details Inicjalizuje interfejs graficzny, ustawia domyślne daty, konfiguruje połączenia sygnałów i tworzy pole filtrowania miast.
  * @param parent Wskaźnik na nadrzędny widget.
  */
 MainWindow::MainWindow(QWidget *parent)
@@ -85,6 +86,7 @@ MainWindow::MainWindow(QWidget *parent)
                 QString fullText = "Dane pomiarowe ze stacji:\n\n" + measurementResults.join("\n");
                 QMessageBox::information(this, "Dane pomiarowe", fullText);
                 measurementResults.clear();
+                sensorsReceived = 0; // Reset po wyświetleniu
             }
         } else if (doc.isArray()) {
             ui->paramListWidget->clear();
@@ -111,7 +113,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->startDateTimeEdit->setDateTime(QDateTime(QDate::currentDate().addDays(-7), QTime::currentTime()));
     ui->endDateTimeEdit->setDateTime(QDateTime(QDate::currentDate(), QTime::currentTime()));
 
-    // Dodaj pole do filtrowania stacji
     cityFilterLineEdit = new QLineEdit(this);
     cityFilterLineEdit->setPlaceholderText("Filtruj po mieście...");
     cityFilterLineEdit->setGeometry(0, 430, 331, 30);
@@ -122,11 +123,10 @@ MainWindow::MainWindow(QWidget *parent)
 
 /**
  * @brief Destruktor okna głównego.
- * @details Zwalnia zasoby interfejsu.
+ * @details Zwalnia zasoby interfejsu i zamyka wszystkie otwarte okna wykresów.
  */
 MainWindow::~MainWindow()
 {
-    // Zamknij i zwolnij wszystkie otwarte okna wykresów
     for (QMainWindow* chartWindow : openCharts) {
         delete chartWindow;
     }
@@ -135,7 +135,7 @@ MainWindow::~MainWindow()
 }
 
 /**
- * @brief Obsługuje kliknięcie przycisku pobierania danych.
+ * @brief Obsługuje kliknięcie przycisku pobierania danych o stacjach.
  */
 void MainWindow::on_pushButton_clicked()
 {
@@ -143,8 +143,8 @@ void MainWindow::on_pushButton_clicked()
 }
 
 /**
- * @brief Wyświetla stacje w liście.
- * @param json Dane JSON z listą stacji.
+ * @brief Wyświetla listę stacji w widżecie listy.
+ * @param json Dane JSON zawierające listę stacji.
  */
 void MainWindow::showStationsInList(const QString &json)
 {
@@ -193,6 +193,8 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
         measurementResults.clear();
         sensorsReceived = 0;
         totalSensorsExpected = 0;
+        sensorDataMap.clear();
+        ui->paramListWidget->clear();
         apiManager->getSensorsForStation(lastStationId);
     }
 }
@@ -228,6 +230,7 @@ void MainWindow::on_pushButton_2_clicked()
 
 /**
  * @brief Rysuje wykres dla wybranych parametrów.
+ * @details Tworzy wykres liniowy dla wielu parametrów w wybranym zakresie dat, z różnymi kolorami dla każdej serii.
  */
 void MainWindow::drawChart()
 {
@@ -328,6 +331,7 @@ void MainWindow::drawChart()
 
 /**
  * @brief Obsługuje rysowanie wykresu po kliknięciu przycisku.
+ * @details Sprawdza poprawność wybranych parametrów i dat, oraz zapobiega otwieraniu wielu okien dla tego samego wykresu.
  */
 void MainWindow::on_drawButton_clicked()
 {
@@ -341,6 +345,13 @@ void MainWindow::on_drawButton_clicked()
     QDateTime endDate = ui->endDateTimeEdit->dateTime();
     if (startDate >= endDate) {
         QMessageBox::warning(this, "Błędna data", "Data początkowa musi być wcześniejsza niż końcowa.");
+        return;
+    }
+
+    // Sprawdź, czy okno wykresu już istnieje
+    if (openCharts.contains("Wykres parametrów")) {
+        QMessageBox::information(this, "Informacja", "Wykres jest już otwarty.");
+        openCharts["Wykres parametrów"]->raise(); // Przenieś istniejące okno na wierzch
         return;
     }
 
@@ -401,7 +412,8 @@ void MainWindow::on_exportButton_clicked()
 }
 
 /**
- * @brief Obsługuje analizę danych pomiarowych.
+ * @brief Obsługuje analizę danych pomiarowych w sposób wielowątkowy.
+ * @details Wykorzystuje QtConcurrent do równoległego przetwarzania danych dla wybranych parametrów.
  */
 void MainWindow::on_analyzeButton_clicked()
 {
@@ -411,18 +423,17 @@ void MainWindow::on_analyzeButton_clicked()
         return;
     }
 
-    QString analysis;
-    for (QListWidgetItem* item : selectedItems) {
+    // Funkcja do analizy pojedynczego parametru
+    auto analyzeParam = [this](QListWidgetItem* item) -> QString {
         QString selectedParam = item->text();
+        QString analysis;
         if (!sensorDataMap.contains(selectedParam)) {
-            analysis += QString("Brak danych dla parametru %1.\n\n").arg(selectedParam);
-            continue;
+            return QString("Brak danych dla parametru %1.\n\n").arg(selectedParam);
         }
 
         QJsonArray data = sensorDataMap[selectedParam];
         if (data.isEmpty()) {
-            analysis += QString("Brak pomiarów dla parametru %1.\n\n").arg(selectedParam);
-            continue;
+            return QString("Brak pomiarów dla parametru %1.\n\n").arg(selectedParam);
         }
 
         double minValue = std::numeric_limits<double>::max();
@@ -447,8 +458,7 @@ void MainWindow::on_analyzeButton_clicked()
         }
 
         if (count == 0) {
-            analysis += QString("Brak dostępnych danych pomiarowych dla %1.\n\n").arg(selectedParam);
-            continue;
+            return QString("Brak dostępnych danych pomiarowych dla %1.\n\n").arg(selectedParam);
         }
 
         double avg = sum / count;
@@ -474,7 +484,6 @@ void MainWindow::on_analyzeButton_clicked()
                             .arg(QString::number(exceedancePercent, 'f', 2));
         }
 
-        // Obliczanie trendu
         auto calculateTrend = [](const QJsonArray &data) {
             double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
             int n = 0;
@@ -496,8 +505,22 @@ void MainWindow::on_analyzeButton_clicked()
 
         double trend = calculateTrend(data);
         analysis += QString("Trend: %1\n\n").arg(trend > 0 ? "Wzrost" : trend < 0 ? "Spadek" : "Stabilny");
-    }
 
+        return analysis;
+    };
+
+    // Uruchom analizę równolegle dla wszystkich parametrów
+    QFuture<QString> future = QtConcurrent::mappedReduced(
+        selectedItems,
+        analyzeParam,
+        [](QString &result, const QString &intermediate) {
+            result += intermediate;
+        },
+        QtConcurrent::OrderedReduce
+        );
+
+    // Poczekaj na wyniki i wyświetl
+    QString analysis = future.result();
     QMessageBox::information(this, "Analiza danych", analysis);
 }
 
@@ -532,6 +555,7 @@ void MainWindow::on_exportChartButton_clicked()
 
 /**
  * @brief Obsługuje odświeżanie danych pomiarowych.
+ * @details Czyści poprzednie dane i inicjuje ponowne pobieranie danych dla wybranej stacji.
  */
 void MainWindow::on_refreshButton_clicked()
 {
@@ -546,7 +570,6 @@ void MainWindow::on_refreshButton_clicked()
     sensorDataMap.clear();
     ui->paramListWidget->clear();
 
-    // Zamknij i zwolnij wszystkie otwarte okna wykresów
     for (QMainWindow* chartWindow : openCharts) {
         delete chartWindow;
     }
