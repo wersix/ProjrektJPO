@@ -16,8 +16,8 @@
 #include <QtCharts/QDateTimeAxis>
 #include <limits>
 #include <QFileDialog>
-#include <QtConcurrent>
-#include <QWebEngineView>
+#include <QPainter>
+#include <QDebug>
 
 /**
  * @brief Konstruktor okna głównego.
@@ -36,6 +36,11 @@ MainWindow::MainWindow(QWidget *parent)
         totalSensorsExpected = count;
     });
     connect(apiManager, &ApiManager::apiReplyReceived, this, [=](const QString &json) {
+        if (json.isEmpty()) {
+            QMessageBox::warning(this, "Błąd", "Nie udało się pobrać danych z API lub sparsować JSON.");
+            return;
+        }
+
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &err);
         if (err.error != QJsonParseError::NoError) {
@@ -86,9 +91,13 @@ MainWindow::MainWindow(QWidget *parent)
             QJsonArray sensors = doc.array();
             for (const QJsonValue &val : sensors) {
                 QJsonObject sensor = val.toObject();
-                QString paramCode = sensor["param"]["paramCode"].toString();
-                if (!paramCode.isEmpty() && ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
-                    ui->paramListWidget->addItem(paramCode);
+                QJsonValue paramValue = sensor["param"];
+                if (!paramValue.isNull() && paramValue.isObject()) {
+                    QJsonObject paramObject = paramValue.toObject();
+                    QString paramCode = paramObject["paramCode"].toString();
+                    if (!paramCode.isEmpty() && ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
+                        ui->paramListWidget->addItem(paramCode);
+                    }
                 }
             }
         } else {
@@ -109,11 +118,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(cityFilterLineEdit, &QLineEdit::textChanged, this, [=](const QString &text) {
         filterStationsByCity(text);
     });
-
-    // Dodaj przycisk do mapy
-    QPushButton *mapButton = new QPushButton("Pokaż mapę", this);
-    mapButton->setGeometry(340, 360, 191, 41);
-    connect(mapButton, &QPushButton::clicked, this, &MainWindow::showMap);
 }
 
 /**
@@ -122,6 +126,11 @@ MainWindow::MainWindow(QWidget *parent)
  */
 MainWindow::~MainWindow()
 {
+    // Zamknij i zwolnij wszystkie otwarte okna wykresów
+    for (QMainWindow* chartWindow : openCharts) {
+        delete chartWindow;
+    }
+    openCharts.clear();
     delete ui;
 }
 
@@ -184,7 +193,6 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
         measurementResults.clear();
         sensorsReceived = 0;
         totalSensorsExpected = 0;
-        drawnCharts.clear();
         apiManager->getSensorsForStation(lastStationId);
     }
 }
@@ -312,7 +320,7 @@ void MainWindow::drawChart()
     chartWindow->resize(800, 600);
     chartWindow->setWindowTitle("Wykres parametrów");
     chartWindow->setOnCloseCallback([this](const QString &paramCode) {
-        openCharts.remove(paramCode);
+        openCharts.remove("Wykres parametrów");
     });
     openCharts["Wykres parametrów"] = chartWindow;
     chartWindow->show();
@@ -537,7 +545,12 @@ void MainWindow::on_refreshButton_clicked()
     totalSensorsExpected = 0;
     sensorDataMap.clear();
     ui->paramListWidget->clear();
-    drawnCharts.clear();
+
+    // Zamknij i zwolnij wszystkie otwarte okna wykresów
+    for (QMainWindow* chartWindow : openCharts) {
+        delete chartWindow;
+    }
+    openCharts.clear();
     currentChartView = nullptr;
 
     QMessageBox::information(this, "Odświeżanie", "Rozpoczęto odświeżanie danych dla wybranej stacji.");
@@ -551,7 +564,6 @@ void MainWindow::on_refreshButton_clicked()
 void MainWindow::filterStationsByCity(const QString &cityName)
 {
     ui->stationListWidget->clear();
-    = 0;
     for (const QJsonValue &val : stationArray) {
         QJsonObject obj = val.toObject();
         QJsonObject city = obj["city"].toObject();
@@ -559,19 +571,4 @@ void MainWindow::filterStationsByCity(const QString &cityName)
             ui->stationListWidget->addItem(obj["stationName"].toString());
         }
     }
-}
-
-/**
- * @brief Wyświetla mapę z lokalizacjami stacji.
- */
-void MainWindow::showMap()
-{
-    QWebEngineView *mapView = new QWebEngineView(this);
-    QString html = "<html><body><iframe width='800' height='600' src='https://www.openstreetmap.org/export/embed.html?bbox=14.0,49.0,24.0,54.0&layer=mapnik'></iframe></body></html>";
-    mapView->setHtml(html);
-    QMainWindow *mapWindow = new QMainWindow(this);
-    mapWindow->setCentralWidget(mapView);
-    mapWindow->resize(800, 600);
-    mapWindow->setWindowTitle("Mapa stacji");
-    mapWindow->show();
 }

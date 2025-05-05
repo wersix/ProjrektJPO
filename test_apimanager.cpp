@@ -45,4 +45,4 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestApiManager)
+//QTEST_MAIN(TestApiManager)

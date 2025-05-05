@@ -87,10 +87,6 @@ private:
      * @param cityName Nazwa miasta do filtrowania.
      */
     void filterStationsByCity(const QString &cityName);
-    /**
-     * @brief Wyświetla mapę z lokalizacjami stacji.
-     */
-    void showMap();
 
     QJsonArray stationArray;
     QStringList measurementResults;
