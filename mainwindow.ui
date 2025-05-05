@@ -173,26 +173,6 @@
     <property name="selectionMode">
      <enum>QAbstractItemView::SelectionMode::MultiSelection</enum>
     </property>
-    <item>
-     <property name="text">
-      <string>PM10</string>
-     </property>
-    </item>
-    <item>
-     <property name="text">
-      <string>PM2.5</string>
-     </property>
-    </item>
-    <item>
-     <property name="text">
-      <string>Temperatura</string>
-     </property>
-    </item>
-    <item>
-     <property name="text">
-      <string>Wilgotność</string>
-     </property>
-    </item>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
