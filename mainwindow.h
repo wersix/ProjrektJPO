@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QListWidgetItem>
 #include <QSet>
+#include <QtCharts/QChartView>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -54,6 +55,7 @@ private:
     QMap<QString, QMainWindow*> openCharts;
 
     QListWidget* paramListWidget;
+    QChartView* currentChartView = nullptr;
 };
 class ChartWindow : public QMainWindow
 {
