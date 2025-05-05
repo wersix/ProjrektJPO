@@ -47,9 +47,14 @@ MainWindow::MainWindow(QWidget *parent)
             QString paramCode = obj["key"].toString();  // np. PM10
             QJsonArray values = obj["values"].toArray();
 
+        if (ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
+            ui->paramListWidget->addItem(paramCode);
+        }
+        // To było do ComboBox
+            /*
             if (ui->sensorComboBox->findText(paramCode) == -1) {
                 ui->sensorComboBox->addItem(paramCode);
-            }// Do rysowania wykresu
+            } */// Do rysowania wykresu
             qDebug() << "Dodano dane do mapy dla czujnika:" << paramCode;       // TEST do wykresu
             qDebug() << "Liczba pomiarów:" << values.size();                    // TEST do wykresu
 
@@ -153,9 +158,18 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
     int index = ui->stationListWidget->row(item);
 
     if (index >= 0 && index < stationArray.size()) {
-        ui->sensorComboBox->clear();
+        ui->paramListWidget->clear();
         // ui->sensorComboBox->addItem("TestPM10");  // testowy wpis
         QJsonObject station = stationArray[index].toObject();
+        /*
+        // W on_stationListWidget_itemClicked, po pobraniu danych czujników sensors to lista czujników z API
+        for (const auto &sensor : sensors) {
+            QString paramCode = sensor["param"]["paramCode"].toString(); // Przykład: PM10
+            if (ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
+                ui->paramListWidget->addItem(paramCode);
+            }
+        }
+        */
 
         QString info;
         info += "Nazwa: " + station["stationName"].toString() + "\n";
@@ -179,6 +193,24 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
         //isChartDrawn = false;        // lepszy sposób poniżej
         drawnCharts.clear();
         apiManager->getSensorsForStation(stationId);
+        connect(apiManager, &ApiManager::apiReplyReceived, this, [=](const QString &json) {
+            QJsonParseError err;
+            QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &err);
+            if (err.error != QJsonParseError::NoError)
+                return;
+
+            if (doc.isArray()) {
+                ui->paramListWidget->clear();
+                QJsonArray sensors = doc.array();
+                for (const QJsonValue &val : sensors) {
+                    QJsonObject sensor = val.toObject();
+                    QString paramCode = sensor["param"]["paramCode"].toString(); // np. PM10
+                    if (!paramCode.isEmpty() && ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
+                        ui->paramListWidget->addItem(paramCode);
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -224,6 +256,7 @@ void MainWindow::on_pushButton_2_clicked()
     //isChartDrawn = false;
     showStationsInList(data);
 }
+/* do ComboBox
 void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
 {
     qDebug() << "Rysuję wykres tylko raz dla:" << paramCode;
@@ -280,7 +313,7 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
     pixmap.save(fileName);
     qDebug() << "Wykres zapisany do pliku:" << fileName;
     */
-
+/*
     if (openCharts.contains(paramCode)) {
         openCharts[paramCode]->raise();
         openCharts[paramCode]->activateWindow();
@@ -302,11 +335,82 @@ void MainWindow::drawChart(const QString &paramCode, const QJsonArray &values)
         qDebug() << "Wykres dla" << code << "zamknięty – usunięto z mapy.";
     });
 }
+*/
+////////////////////////////
+void MainWindow::drawChart() {
+    // Sprawdź, czy są dane pomiarowe
+    if (currentMeasurements.isEmpty()) {
+        QMessageBox::information(this, "Brak danych", "Brak danych do wyświetlenia.");
+        return;
+    }
+
+    // Utwórz nowy wykres
+    QChart* chart = new QChart();
+    chart->setTitle("Wykres parametrów pomiarowych");
+
+    // Pobierz listę wybranych parametrów z QListWidget
+    QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
+
+    if (selectedItems.isEmpty()) {
+        QMessageBox::information(this, "Brak wyboru", "Wybierz przynajmniej jeden parametr.");
+        return;
+    }
+
+    // Lista kolorów dla serii
+    QList<QColor> colors = {
+        Qt::red, Qt::blue, Qt::green, Qt::magenta, Qt::cyan, Qt::darkYellow, Qt::gray
+    };
+    int colorIndex = 0;
+
+    // Tworzymy serię dla każdego parametru
+    for (QListWidgetItem* item : selectedItems) {
+        QString paramName = item->text();
+
+        QLineSeries* series = new QLineSeries();
+        series->setName(paramName);
+
+        for (const auto& measurement : currentMeasurements) {
+            QDateTime timestamp = measurement.timestamp;
+            if (measurement.values.contains(paramName)) {
+                qreal value = measurement.values[paramName];
+                series->append(timestamp.toMSecsSinceEpoch(), value);
+            }
+        }
+
+        series->setColor(colors[colorIndex % colors.size()]);
+        colorIndex++;
+
+        chart->addSeries(series);
+    }
+
+    // Konfiguracja osi X (czas)
+    QDateTimeAxis* axisX = new QDateTimeAxis();
+    axisX->setFormat("dd.MM hh:mm");
+    axisX->setTitleText("Czas");
+    chart->addAxis(axisX, Qt::AlignBottom);
+
+    // Konfiguracja osi Y
+    QValueAxis* axisY = new QValueAxis();
+    axisY->setTitleText("Wartość");
+    chart->addAxis(axisY, Qt::AlignLeft);
+
+    // Podłącz osie do każdej serii
+    for (QAbstractSeries* series : chart->series()) {
+        series->attachAxis(axisX);
+        series->attachAxis(axisY);
+    }
+
+    // Wyświetl wykres
+    chartView->setChart(chart);
+}
+////////////////////////////
+
+
 
 //bool isChartDrawn = false;          // ponieważ wykres się rysuje 2 razy, dlatego robimy boola, żeby nie potrzebnie się nie nadrysowywał
 void MainWindow::on_drawButton_clicked()
 {
-    /*Może to pod /* rozwiąże problem podwójnych komunikatów?
+    /*Może to pod  rozwiąże problem podwójnych komunikatów?
     QString selectedParam = ui->sensorComboBox->currentText();
     if (selectedParam.isEmpty() || !sensorDataMap.contains(selectedParam)) {
         QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
@@ -337,18 +441,12 @@ void MainWindow::on_drawButton_clicked()
     qDebug() <<  "po returnie";
     */
 
-    QString selectedSensor = ui->sensorComboBox->currentText();
-    if (selectedSensor.isEmpty()) {
-        QMessageBox::warning(this, "Brak wyboru", "Wybierz czujnik z listy.");
+    QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        QMessageBox::warning(this, "Brak wyboru", "Wybierz przynajmniej jeden parametr.");
         return;
     }
 
-    if (!sensorDataMap.contains(selectedSensor)) {
-        QMessageBox::warning(this, "Brak danych", "Brak danych pomiarowych dla wybranego czujnika.");
-        return;
-    }
-
-    // Filtr dat
     QDateTime startDate = ui->startDateTimeEdit->dateTime();
     QDateTime endDate = ui->endDateTimeEdit->dateTime();
     if (startDate >= endDate) {
@@ -356,8 +454,17 @@ void MainWindow::on_drawButton_clicked()
         return;
     }
 
-    drawChart(selectedSensor, sensorDataMap[selectedSensor]);
-
+    for (QListWidgetItem* item : selectedItems) {
+        QString selectedSensor = item->text();
+        if (!sensorDataMap.contains(selectedSensor)) {
+            QMessageBox::warning(this, "Brak danych", QString("Brak danych pomiarowych dla %1.").arg(selectedSensor));
+            continue;
+        }
+        if (!drawnCharts.contains(selectedSensor)) {
+            drawChart(selectedSensor, sensorDataMap[selectedSensor]);
+            drawnCharts.insert(selectedSensor);
+        }
+    }
 }
 
 
@@ -410,8 +517,14 @@ void MainWindow::on_exportButton_clicked()
 
 void MainWindow::on_analyzeButton_clicked()
 {
-    QString selectedParam = ui->sensorComboBox->currentText();
-    if (selectedParam.isEmpty() || !sensorDataMap.contains(selectedParam)) {
+    QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        QMessageBox::warning(this, "Błąd", "Wybierz parametr do analizy.");
+        return;
+    }
+    // ANALIZUJE TYLKO PIERWSZY --> POPRAW!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    QString selectedParam = selectedItems.first()->text(); // Analizuj tylko pierwszy wybrany parametr
+    if (!sensorDataMap.contains(selectedParam)) {
         QMessageBox::warning(this, "Błąd", "Brak danych dla wybranego czujnika.");
         return;
     }
@@ -532,7 +645,7 @@ void MainWindow::on_refreshButton_clicked()
     sensorsReceived = 0;
     totalSensorsExpected = 0;
     sensorDataMap.clear();
-    ui->sensorComboBox->clear();
+    ui->paramListWidget->clear();
     drawnCharts.clear();
 
     QMessageBox::information(this, "Odświeżanie", "Rozpoczęto odświeżanie danych dla wybranej stacji.");

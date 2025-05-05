@@ -52,6 +52,8 @@ private:
 
     QSet<QString> drawnCharts;
     QMap<QString, QMainWindow*> openCharts;
+
+    QListWidget* paramListWidget;
 };
 class ChartWindow : public QMainWindow
 {
