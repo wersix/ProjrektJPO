@@ -16,10 +16,14 @@
 #include <QtCharts/QDateTimeAxis>
 #include <limits>
 #include <QFileDialog>
-
 #include <QtConcurrent>
 #include <QWebEngineView>
 
+/**
+ * @brief Konstruktor okna głównego.
+ * @details Inicjalizuje interfejs, ustawia domyślne daty i konfiguruje połączenia sygnałów.
+ * @param parent Wskaźnik na nadrzędny widget.
+ */
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -27,17 +31,19 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     this->setWindowTitle("Dane o pogodzie");
 
-    apiManager = new ApiManager(this);
+    apiManager = &ApiManager::instance();
     connect(apiManager, &ApiManager::sensorCountReceived, this, [=](int count){
         totalSensorsExpected = count;
     });
     connect(apiManager, &ApiManager::apiReplyReceived, this, [=](const QString &json) {
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &err);
-        if (err.error != QJsonParseError::NoError)
+        if (err.error != QJsonParseError::NoError) {
+            QMessageBox::warning(this, "Błąd", "Nieprawidłowy format JSON: " + err.errorString());
             return;
+        }
 
-        if (doc.isArray()) {
+        if (doc.isArray() && json.contains("stationName")) {
             showStationsInList(json);
         }
         else if (doc.isObject() && doc.object().contains("values")) {
@@ -48,9 +54,6 @@ MainWindow::MainWindow(QWidget *parent)
             if (ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
                 ui->paramListWidget->addItem(paramCode);
             }
-
-            qDebug() << "Dodano dane do mapy dla czujnika:" << paramCode;
-            qDebug() << "Liczba pomiarów:" << values.size();
 
             QString result = QString("• %1:\n").arg(paramCode);
             int count = 0;
@@ -78,36 +81,64 @@ MainWindow::MainWindow(QWidget *parent)
                 QMessageBox::information(this, "Dane pomiarowe", fullText);
                 measurementResults.clear();
             }
+        } else if (doc.isArray()) {
+            ui->paramListWidget->clear();
+            QJsonArray sensors = doc.array();
+            for (const QJsonValue &val : sensors) {
+                QJsonObject sensor = val.toObject();
+                QString paramCode = sensor["param"]["paramCode"].toString();
+                if (!paramCode.isEmpty() && ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
+                    ui->paramListWidget->addItem(paramCode);
+                }
+            }
         } else {
             qDebug() << "Nieznany format danych JSON";
         }
     });
 
-    connect(ui->drawButton, &QPushButton::clicked,
-            this, &MainWindow::on_drawButton_clicked);
-    connect(ui->refreshButton, &QPushButton::clicked,
-            this, &MainWindow::on_refreshButton_clicked);
+    connect(ui->drawButton, &QPushButton::clicked, this, &MainWindow::on_drawButton_clicked);
+    connect(ui->refreshButton, &QPushButton::clicked, this, &MainWindow::on_refreshButton_clicked);
 
     ui->startDateTimeEdit->setDateTime(QDateTime(QDate::currentDate().addDays(-7), QTime::currentTime()));
     ui->endDateTimeEdit->setDateTime(QDateTime(QDate::currentDate(), QTime::currentTime()));
+
+    // Dodaj pole do filtrowania stacji
+    cityFilterLineEdit = new QLineEdit(this);
+    cityFilterLineEdit->setPlaceholderText("Filtruj po mieście...");
+    cityFilterLineEdit->setGeometry(0, 430, 331, 30);
+    connect(cityFilterLineEdit, &QLineEdit::textChanged, this, [=](const QString &text) {
+        filterStationsByCity(text);
+    });
+
+    // Dodaj przycisk do mapy
+    QPushButton *mapButton = new QPushButton("Pokaż mapę", this);
+    mapButton->setGeometry(340, 360, 191, 41);
+    connect(mapButton, &QPushButton::clicked, this, &MainWindow::showMap);
 }
 
+/**
+ * @brief Destruktor okna głównego.
+ * @details Zwalnia zasoby interfejsu.
+ */
 MainWindow::~MainWindow()
 {
     delete ui;
 }
 
+/**
+ * @brief Obsługuje kliknięcie przycisku pobierania danych.
+ */
 void MainWindow::on_pushButton_clicked()
 {
     apiManager->getAirStations();
 }
 
+/**
+ * @brief Wyświetla stacje w liście.
+ * @param json Dane JSON z listą stacji.
+ */
 void MainWindow::showStationsInList(const QString &json)
 {
-    static int counter = 0;
-    ++counter;
-    qDebug() << "Funkcja showStationsInList została wywołana — ile = " << counter;
-
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &parseError);
 
@@ -121,29 +152,19 @@ void MainWindow::showStationsInList(const QString &json)
         return;
     }
 
-    QJsonArray stations = doc.array();
-    stationArray = stations;
-
-    ui->stationListWidget->clear();
-
-    for (const QJsonValue &val : stations) {
-        QJsonObject obj = val.toObject();
-        QString name = obj["stationName"].toString();
-        if (!name.isEmpty())
-            ui->stationListWidget->addItem(name);
-    }
+    stationArray = doc.array();
+    filterStationsByCity(cityFilterLineEdit->text());
 }
 
+/**
+ * @brief Obsługuje kliknięcie na stację w liście.
+ * @param item Wybrany element listy.
+ */
 void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
 {
-    static int clickCount = 0;
-    ++clickCount;
-    qDebug() << "Kliknięcie " << clickCount << "na stację:" << item->text();
-
     int index = ui->stationListWidget->row(item);
 
     if (index >= 0 && index < stationArray.size()) {
-        ui->paramListWidget->clear();
         QJsonObject station = stationArray[index].toObject();
 
         QString info;
@@ -160,33 +181,17 @@ void MainWindow::on_stationListWidget_itemClicked(QListWidgetItem *item)
 
         QMessageBox::information(this, "Szczegóły stacji", info);
 
-        int stationId = station["id"].toInt();
         measurementResults.clear();
         sensorsReceived = 0;
         totalSensorsExpected = 0;
         drawnCharts.clear();
-        apiManager->getSensorsForStation(stationId);
-        connect(apiManager, &ApiManager::apiReplyReceived, this, [=](const QString &json) {
-            QJsonParseError err;
-            QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &err);
-            if (err.error != QJsonParseError::NoError)
-                return;
-
-            if (doc.isArray()) {
-                ui->paramListWidget->clear();
-                QJsonArray sensors = doc.array();
-                for (const QJsonValue &val : sensors) {
-                    QJsonObject sensor = val.toObject();
-                    QString paramCode = sensor["param"]["paramCode"].toString();
-                    if (!paramCode.isEmpty() && ui->paramListWidget->findItems(paramCode, Qt::MatchExactly).isEmpty()) {
-                        ui->paramListWidget->addItem(paramCode);
-                    }
-                }
-            }
-        });
+        apiManager->getSensorsForStation(lastStationId);
     }
 }
 
+/**
+ * @brief Obsługuje wczytywanie zapisanych danych stacji.
+ */
 void MainWindow::on_pushButton_2_clicked()
 {
     QFile file("stacje.json");
@@ -207,12 +212,15 @@ void MainWindow::on_pushButton_2_clicked()
     }
 
     if (!doc.isArray()) {
-        QMessageBox::warning(this, "Błąd", "Plik nie zawiera listy stacji (może zawierać dane pomiarowe).");
+        QMessageBox::warning(this, "Błąd", "Plik nie zawiera listy stacji.");
         return;
     }
     showStationsInList(data);
 }
 
+/**
+ * @brief Rysuje wykres dla wybranych parametrów.
+ */
 void MainWindow::drawChart()
 {
     QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
@@ -242,6 +250,11 @@ void MainWindow::drawChart()
         colorIndex++;
 
         QJsonArray values = sensorDataMap[paramCode];
+        if (values.isEmpty()) {
+            qDebug() << "Brak danych dla parametru:" << paramCode;
+            continue;
+        }
+
         for (const QJsonValue &val : values) {
             QJsonObject v = val.toObject();
             if (!v["value"].isNull()) {
@@ -286,7 +299,7 @@ void MainWindow::drawChart()
             maxY = qMax(maxY, point.y());
         }
     }
-    axisY->setRange(minY * 0.9, maxY * 1.1); // Dodanie marginesów
+    axisY->setRange(minY * 0.9, maxY * 1.1);
 
     chart->legend()->setVisible(true);
     chart->legend()->setAlignment(Qt::AlignBottom);
@@ -298,9 +311,16 @@ void MainWindow::drawChart()
     chartWindow->setCentralWidget(currentChartView);
     chartWindow->resize(800, 600);
     chartWindow->setWindowTitle("Wykres parametrów");
+    chartWindow->setOnCloseCallback([this](const QString &paramCode) {
+        openCharts.remove(paramCode);
+    });
+    openCharts["Wykres parametrów"] = chartWindow;
     chartWindow->show();
 }
 
+/**
+ * @brief Obsługuje rysowanie wykresu po kliknięciu przycisku.
+ */
 void MainWindow::on_drawButton_clicked()
 {
     QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
@@ -319,12 +339,21 @@ void MainWindow::on_drawButton_clicked()
     drawChart();
 }
 
+/**
+ * @brief Obsługuje eksport danych pomiarowych.
+ */
 void MainWindow::on_exportButton_clicked()
 {
+    if (lastStationId == -1) {
+        QMessageBox::warning(this, "Błąd", "Nie wybrano stacji do eksportu danych.");
+        return;
+    }
+
     if (lastMeasurementJson.isEmpty()) {
         QMessageBox::warning(this, "Brak danych", "Brak danych do zapisania.");
         return;
     }
+
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(lastMeasurementJson.toUtf8(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
@@ -363,6 +392,9 @@ void MainWindow::on_exportButton_clicked()
     QMessageBox::information(this, "Zapisano", "Dane zapisano do:\n" + jsonFilename + "\ni\n" + csvFilename);
 }
 
+/**
+ * @brief Obsługuje analizę danych pomiarowych.
+ */
 void MainWindow::on_analyzeButton_clicked()
 {
     QList<QListWidgetItem*> selectedItems = ui->paramListWidget->selectedItems();
@@ -433,32 +465,37 @@ void MainWindow::on_analyzeButton_clicked()
                             ).arg(exceedances)
                             .arg(QString::number(exceedancePercent, 'f', 2));
         }
-        analysis += "\n";
-    }
-    double calculateTrend(const QJsonArray &data) {
-        double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-        int n = 0;
-        for (int i = 0; i < data.size(); ++i) {
-            QJsonObject v = data[i].toObject();
-            if (!v["value"].isNull()) {
-                double y = v["value"].toDouble();
-                sumX += i;
-                sumY += y;
-                sumXY += i * y;
-                sumXX += i * i;
-                n++;
+
+        // Obliczanie trendu
+        auto calculateTrend = [](const QJsonArray &data) {
+            double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+            int n = 0;
+            for (int i = 0; i < data.size(); ++i) {
+                QJsonObject v = data[i].toObject();
+                if (!v["value"].isNull()) {
+                    double y = v["value"].toDouble();
+                    sumX += i;
+                    sumY += y;
+                    sumXY += i * y;
+                    sumXX += i * i;
+                    n++;
+                }
             }
-        }
-        if (n < 2) return 0.0;
-        double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-        return slope; // Dodatni -> wzrost, ujemny -> spadek
+            if (n < 2) return 0.0;
+            double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            return slope;
+        };
+
+        double trend = calculateTrend(data);
+        analysis += QString("Trend: %1\n\n").arg(trend > 0 ? "Wzrost" : trend < 0 ? "Spadek" : "Stabilny");
     }
 
-    double trend = calculateTrend(data);
-    analysis += QString("Trend: %1\n").arg(trend > 0 ? "Wzrost" : trend < 0 ? "Spadek" : "Stabilny");
     QMessageBox::information(this, "Analiza danych", analysis);
 }
 
+/**
+ * @brief Obsługuje eksport wykresu do pliku.
+ */
 void MainWindow::on_exportChartButton_clicked()
 {
     if (!currentChartView) {
@@ -485,9 +522,12 @@ void MainWindow::on_exportChartButton_clicked()
     }
 }
 
+/**
+ * @brief Obsługuje odświeżanie danych pomiarowych.
+ */
 void MainWindow::on_refreshButton_clicked()
 {
-    if (lastStationId == 0) {
+    if (lastStationId == -1) {
         QMessageBox::warning(this, "Błąd", "Nie wybrano stacji do odświeżenia.");
         return;
     }
@@ -501,35 +541,17 @@ void MainWindow::on_refreshButton_clicked()
     currentChartView = nullptr;
 
     QMessageBox::information(this, "Odświeżanie", "Rozpoczęto odświeżanie danych dla wybranej stacji.");
-
     apiManager->getSensorsForStation(lastStationId);
 }
-//WIELOWĄTKOWOŚĆ
-void ApiManager::onReplyFinished(QNetworkReply *reply) {
-    if (reply->error() != QNetworkReply::NoError) {
-        qDebug() << "Błąd pobierania:" << reply->errorString();
-        reply->deleteLater();
-        return;
-    }
 
-    QString data = reply->readAll();
-    QtConcurrent::run([this, data]() {
-        QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(data.toUtf8(), &parseError);
-        if (parseError.error != QJsonParseError::NoError) {
-            qDebug() << "Błąd parsowania JSON:" << parseError.errorString();
-            return;
-        }
-        // Przetwarzanie danych
-        QMetaObject::invokeMethod(this, [this, data]() {
-            emit apiReplyReceived(data);
-        }, Qt::QueuedConnection);
-    });
-    reply->deleteLater();
-}
-//FILTRACJA STACJI
-void MainWindow::filterStationsByCity(const QString &cityName) {
+/**
+ * @brief Filtruje stacje według nazwy miasta.
+ * @param cityName Nazwa miasta do filtrowania.
+ */
+void MainWindow::filterStationsByCity(const QString &cityName)
+{
     ui->stationListWidget->clear();
+    = 0;
     for (const QJsonValue &val : stationArray) {
         QJsonObject obj = val.toObject();
         QJsonObject city = obj["city"].toObject();
@@ -538,10 +560,18 @@ void MainWindow::filterStationsByCity(const QString &cityName) {
         }
     }
 }
-//MAPA
-void MainWindow::showMap() {
-    QWebEngineView *mapView = new QWebEngineView();
-    QString html = "<html><body><iframe src='https://www.openstreetmap.org/export/embed.html?bbox=...'></iframe></body></html>";
+
+/**
+ * @brief Wyświetla mapę z lokalizacjami stacji.
+ */
+void MainWindow::showMap()
+{
+    QWebEngineView *mapView = new QWebEngineView(this);
+    QString html = "<html><body><iframe width='800' height='600' src='https://www.openstreetmap.org/export/embed.html?bbox=14.0,49.0,24.0,54.0&layer=mapnik'></iframe></body></html>";
     mapView->setHtml(html);
-    mapView->show();
+    QMainWindow *mapWindow = new QMainWindow(this);
+    mapWindow->setCentralWidget(mapView);
+    mapWindow->resize(800, 600);
+    mapWindow->setWindowTitle("Mapa stacji");
+    mapWindow->show();
 }
