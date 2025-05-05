@@ -122,6 +122,23 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 /**
+ * @brief Ustawia dane testowe dla określonego parametru.
+ * @param param Kod parametru (np. "PM10").
+ * @param data Tablica JSON z danymi pomiarowymi.
+ */
+void MainWindow::setTestData(const QString& param, const QJsonArray& data) {
+    sensorDataMap[param] = data;
+}
+
+/**
+ * @brief Zwraca liczbę stacji w liście.
+ * @return Liczba elementów w stationListWidget.
+ */
+int MainWindow::getStationListCount() const {
+    return ui->stationListWidget->count();
+}
+
+/**
  * @brief Destruktor okna głównego.
  * @details Zwalnia zasoby interfejsu i zamyka wszystkie otwarte okna wykresów.
  */
@@ -508,7 +525,7 @@ void MainWindow::on_analyzeButton_clicked()
 
         return analysis;
     };
-
+    //WIELOWĄTKOWOŚĆ
     // Uruchom analizę równolegle dla wszystkich parametrów
     QFuture<QString> future = QtConcurrent::mappedReduced(
         selectedItems,

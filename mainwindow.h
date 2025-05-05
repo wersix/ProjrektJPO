@@ -29,6 +29,23 @@ public:
      * @param parent Wskaźnik na nadrzędny widget.
      */
     explicit MainWindow(QWidget *parent = nullptr);
+    void setTestData(const QString& param, const QJsonArray& data); // Metoda testowa
+    int getStationListCount() const; // Nowa metoda do testów
+    /**
+     * @brief Wyświetla listę stacji w widżecie listy.
+     * @param json Dane JSON zawierające listę stacji.
+     */
+    void showStationsInList(const QString &json);
+    /**
+     * @brief Slot dla przycisku analizy danych.
+     */
+    void on_analyzeButton_clicked();
+    /**
+     * @brief Filtruje stacje według nazwy miasta.
+     * @param cityName Nazwa miasta do filtrowania.
+     */
+    void filterStationsByCity(const QString &cityName);
+
     /**
      * @brief Destruktor okna głównego.
      */
@@ -56,10 +73,7 @@ private slots:
      * @brief Slot dla przycisku eksportu danych.
      */
     void on_exportButton_clicked();
-    /**
-     * @brief Slot dla przycisku analizy danych.
-     */
-    void on_analyzeButton_clicked();
+
     /**
      * @brief Slot dla przycisku eksportu wykresu.
      */
@@ -74,19 +88,10 @@ private:
     ApiManager *apiManager;
 
     /**
-     * @brief Wyświetla listę stacji w widżecie listy.
-     * @param json Dane JSON zawierające listę stacji.
-     */
-    void showStationsInList(const QString &json);
-    /**
      * @brief Rysuje wykres dla wybranych parametrów.
      */
     void drawChart();
-    /**
-     * @brief Filtruje stacje według nazwy miasta.
-     * @param cityName Nazwa miasta do filtrowania.
-     */
-    void filterStationsByCity(const QString &cityName);
+
 
     QJsonArray stationArray;
     QStringList measurementResults;
